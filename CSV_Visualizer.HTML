@@ -1,0 +1,571 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>CSV Data Multi-Graph Visualizer</title>
+    <!-- Tailwind CSS CDN -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Google Fonts - Inter for clean typography -->
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        /* Custom styles for the app */
+        body {
+            font-family: 'Inter', sans-serif;
+        }
+        canvas {
+            /* Ensures canvas scales correctly within its container while maintaining aspect ratio */
+            display: block;
+            max-width: 800px; /* Limits the max width of the canvas */
+            height: auto; /* Maintains aspect ratio */
+            margin: 0 auto; /* Center the canvas within its container */
+        }
+    </style>
+</head>
+<body class="min-h-screen bg-gray-900 p-4 flex flex-col items-center text-gray-200">
+
+    <h1 class="text-4xl font-bold text-blue-400 mb-6 rounded-lg p-2 shadow-lg">
+        CSV Data Multi-Graph Visualizer
+    </h1>
+
+    <!-- File input section -->
+    <div class="bg-gray-800 p-6 rounded-2xl shadow-lg mb-8 w-full max-w-2xl flex flex-col items-center">
+        <label for="csv-upload" class="block text-lg font-medium text-gray-200 mb-4">
+            Upload a CSV File to view its graphs:
+        </label>
+        <input
+            type="file"
+            id="csv-upload"
+            accept=".csv"
+            class="block w-full text-sm text-gray-400
+                    file:mr-4 file:py-2 file:px-4
+                    file:rounded-full file:border-0
+                    file:text-sm file:font-semibold
+                    file:bg-blue-900 file:text-blue-300
+                    hover:file:bg-blue-700 hover:file:text-white cursor-pointer
+                    rounded-lg shadow-sm"
+        />
+        <p id="error-message" class="mt-4 text-red-300 text-sm font-medium p-2 bg-red-900 rounded-lg w-full text-center hidden">
+            <!-- Error messages will be displayed here -->
+        </p>
+    </div>
+
+    <!-- Graphs display section -->
+    <div id="graphs-container" class="flex flex-col items-center gap-8 mt-8 w-full max-w-5xl">
+        <div id="initial-message" class="bg-gray-800 p-6 rounded-2xl shadow-lg w-full max-w-2xl text-center text-gray-400">
+            <p>Upload a CSV file above to see the graphs!</p>
+            <p class="text-sm mt-2">
+                The first column will be used for the X-axis (time/index), and each subsequent numeric column will be displayed as a separate graph.
+            </p>
+        </div>
+        <!-- Graphs will be dynamically added here -->
+    </div>
+
+    <script>
+        // --- Global Variables and Constants ---
+        const PADDING = 40; // Padding around the graph drawing area within the canvas
+        const INTRINSIC_CANVAS_WIDTH = 800; // Designed drawing width of the canvas in pixels
+        const INTRINSIC_CANVAS_HEIGHT = 500; // Designed drawing height of the canvas in pixels
+
+        // Elements from the DOM
+        const csvUploadInput = document.getElementById('csv-upload');
+        const graphsContainer = document.getElementById('graphs-container');
+        const errorMessageElement = document.getElementById('error-message');
+        const initialMessageElement = document.getElementById('initial-message');
+
+        // --- Helper Functions ---
+
+        /**
+         * @brief Displays an error message to the user.
+         * @param message The error message to display.
+         */
+        function displayError(message) {
+            errorMessageElement.textContent = message;
+            errorMessageElement.classList.remove('hidden');
+        }
+
+        /**
+         * @brief Hides the error message.
+         */
+        function hideError() {
+            errorMessageElement.classList.add('hidden');
+            errorMessageElement.textContent = '';
+        }
+
+        /**
+         * @brief Generates a distinct color based on an index for graph lines.
+         * @param index The index of the series.
+         * @return A CSS color string.
+         */
+        function getColor(index) {
+            const colors = [
+                '#3b82f6', // Blue (Tailwind blue-500)
+                '#ef4444', // Red (Tailwind red-500)
+                '#22c55e', // Green (Tailwind green-500)
+                '#f97316', // Orange (Tailwind orange-500)
+                '#8b5cf6', // Purple (Tailwind violet-500)
+                '#ec4899', // Pink (Tailwind pink-500)
+                '#06b6d4', // Cyan (Tailwind cyan-500)
+                '#eab308', // Yellow (Tailwind yellow-500)
+            ];
+            return colors[index % colors.length];
+        }
+
+        /**
+         * @brief Parses a CSV string into a 2D array of strings.
+         * Handles quoted fields and various line endings.
+         * @param text The CSV content as a string.
+         * @return A 2D array representing the parsed CSV data.
+         */
+        function parseCSV(text) {
+            const rows = [];
+            let inQuote = false;
+            let currentRow = [];
+            let currentField = '';
+
+            for (let i = 0; i < text.length; i++) {
+                const char = text[i];
+                const nextChar = text[i + 1];
+
+                if (char === '"') {
+                    if (inQuote && nextChar === '"') { // Handle escaped double quote "" -> "
+                        currentField += '"';
+                        i++; // Skip the next quote
+                    } else {
+                        inQuote = !inQuote;
+                    }
+                } else if (char === ',' && !inQuote) { // Field delimiter
+                    currentRow.push(currentField);
+                    currentField = '';
+                } else if (char === '\n' && !inQuote) { // Row delimiter (newline)
+                    currentRow.push(currentField);
+                    rows.push(currentRow);
+                    currentRow = [];
+                    currentField = '';
+                    if (text[i + 1] === '\r') i++; // Handle Windows \r\n
+                } else if (char === '\r' && !inQuote) { // Handle Mac \r (old style)
+                    currentRow.push(currentField);
+                    rows.push(currentRow);
+                    currentRow = [];
+                    currentField = '';
+                } else {
+                    currentField += char;
+                }
+            }
+            // Add the last field and row if any content remains
+            if (currentField !== '' || currentRow.length > 0) {
+                currentRow.push(currentField);
+                rows.push(currentRow);
+            }
+
+            // Filter out any completely empty rows that might result from trailing newlines
+            return rows.filter(row => row.some(field => field.trim() !== ''));
+        }
+
+        /**
+         * @brief Finds the index of the data point closest to the given data X-value.
+         * @param xValues Array of X-axis data points.
+         * @param targetX The target X-value to find the closest point for.
+         * @return The index of the closest data point, or -1 if xValues is empty.
+         */
+        function findClosestDataPointIndex(xValues, targetX) {
+            if (xValues.length === 0) return -1;
+
+            let closestIndex = 0;
+            let minDiff = Math.abs(xValues[0] - targetX);
+
+            for (let i = 1; i < xValues.length; i++) {
+                const diff = Math.abs(xValues[i] - targetX);
+                if (diff < minDiff) {
+                    minDiff = diff;
+                    closestIndex = i;
+                }
+            }
+            return closestIndex;
+        }
+
+        /**
+         * @brief Draws a single line graph on a given canvas.
+         * @param canvas The HTMLCanvasElement to draw on.
+         * @param seriesName The name of the data series (title for the Y-axis).
+         * @param xValues Array of numeric X-axis values.
+         * @param yValues Array of numeric Y-axis values for this series.
+         * @param minX Minimum X-value for scaling.
+         * @param maxX Maximum X-value for scaling.
+         * @param minY Minimum Y-value for this series' scaling.
+         * @param maxY Maximum Y-value for this series' scaling.
+         * @param seriesColor Color for the line of this series.
+         * @param xAxisLabel Label for the X-axis.
+         */
+        function drawSingleSeriesGraph(canvas, seriesName, xValues, yValues, minX, maxX, minY, maxY, seriesColor, xAxisLabel) {
+            const ctx = canvas.getContext('2d');
+            const dpr = window.devicePixelRatio || 1; // Device pixel ratio for sharper graphics
+            canvas.width = INTRINSIC_CANVAS_WIDTH * dpr; // Set internal resolution for high-DPI screens
+            canvas.height = INTRINSIC_CANVAS_HEIGHT * dpr;
+            ctx.scale(dpr, dpr); // Scale context to match device pixel ratio
+
+            ctx.clearRect(0, 0, INTRINSIC_CANVAS_WIDTH, INTRINSIC_CANVAS_HEIGHT); // Clear drawing area
+
+            const graphWidth = INTRINSIC_CANVAS_WIDTH - 2 * PADDING;
+            const graphHeight = INTRINSIC_CANVAS_HEIGHT - 2 * PADDING;
+
+            // Scaling factors to map data to canvas coordinates
+            const scaleX = (maxX - minX === 0) ? 1 : graphWidth / (maxX - minX);
+            const scaleY = (maxY - minY === 0) ? 1 : graphHeight / (maxY - minY);
+
+            // Draw grid lines
+            ctx.strokeStyle = 'rgba(107, 114, 128, 0.3)'; // Lighter gray, semi-transparent
+            ctx.lineWidth = 0.5;
+
+            // Vertical grid lines
+            const numXGridLines = 5;
+            for (let i = 0; i <= numXGridLines; i++) {
+                const xPos = PADDING + i * (graphWidth / numXGridLines);
+                ctx.beginPath();
+                ctx.moveTo(xPos, PADDING);
+                ctx.lineTo(xPos, PADDING + graphHeight);
+                ctx.stroke();
+            }
+
+            // Horizontal grid lines
+            const numYGridLines = 5;
+            for (let i = 0; i <= numYGridLines; i++) {
+                const yPos = PADDING + i * (graphHeight / numYGridLines);
+                ctx.beginPath();
+                ctx.moveTo(PADDING, yPos);
+                ctx.lineTo(PADDING + graphWidth, yPos);
+                ctx.stroke();
+            }
+
+            // Draw data line
+            ctx.beginPath();
+            ctx.strokeStyle = seriesColor;
+            ctx.lineWidth = 2;
+
+            if (xValues.length > 0 && yValues.length > 0) {
+                // Iterate through data points and draw the line
+                let firstPointDrawn = false;
+                for (let i = 0; i < xValues.length; i++) {
+                    const x = xValues[i];
+                    const y = yValues[i];
+
+                    if (!isNaN(x) && !isNaN(y)) {
+                        // Map data coordinates to canvas pixel coordinates
+                        const canvasX = PADDING + (x - minX) * scaleX;
+                        // Y-axis is inverted in canvas (0 is top, max is bottom)
+                        const canvasY = PADDING + graphHeight - (y - minY) * scaleY;
+
+                        if (!firstPointDrawn) {
+                            ctx.moveTo(canvasX, canvasY);
+                            firstPointDrawn = true;
+                        } else {
+                            ctx.lineTo(canvasX, canvasY);
+                        }
+                        // Draw a small circle at each data point
+                        ctx.arc(canvasX, canvasY, 3, 0, Math.PI * 2);
+                    }
+                }
+            }
+            ctx.stroke(); // Finalize the line drawing
+
+            // Draw axes and labels
+            ctx.strokeStyle = '#9ca3af'; // Light gray for axes in dark mode
+            ctx.fillStyle = '#e5e7eb'; // Lighter text color in dark mode
+            ctx.lineWidth = 1;
+            ctx.font = '12px Inter, sans-serif';
+
+            // X-axis
+            ctx.beginPath();
+            ctx.moveTo(PADDING, INTRINSIC_CANVAS_HEIGHT - PADDING);
+            ctx.lineTo(INTRINSIC_CANVAS_WIDTH - PADDING, INTRINSIC_CANVAS_HEIGHT - PADDING);
+            ctx.stroke();
+            // X-axis label
+            ctx.fillText(xAxisLabel || 'X-Axis', INTRINSIC_CANVAS_WIDTH / 2, INTRINSIC_CANVAS_HEIGHT - PADDING + 30);
+            // Min/Max X-axis values
+            ctx.fillText(minX.toFixed(2), PADDING, INTRINSIC_CANVAS_HEIGHT - PADDING + 15);
+            ctx.fillText(maxX.toFixed(2), INTRINSIC_CANVAS_WIDTH - PADDING - 30, INTRINSIC_CANVAS_HEIGHT - PADDING + 15);
+
+            // Y-axis
+            ctx.beginPath();
+            ctx.moveTo(PADDING, PADDING);
+            ctx.lineTo(PADDING, INTRINSIC_CANVAS_HEIGHT - PADDING);
+            ctx.stroke();
+            ctx.save(); // Save current context state for rotation
+            ctx.translate(PADDING - 30, INTRINSIC_CANVAS_HEIGHT / 2); // Translate to center of Y-axis label area
+            ctx.rotate(-Math.PI / 2); // Rotate text 90 degrees counter-clockwise
+            ctx.fillText(seriesName, 0, 0); // Y-axis label (series name)
+            ctx.restore(); // Restore context state
+
+            // Min/Max Y-axis values
+            ctx.fillText(minY.toFixed(2), PADDING - 35, INTRINSIC_CANVAS_HEIGHT - PADDING + 5);
+            ctx.fillText(maxY.toFixed(2), PADDING - 35, PADDING + 5);
+        }
+
+        /**
+         * @brief Handles mouse movement over a graph canvas to display the cursor and values.
+         * @param e The mouse event.
+         * @param canvas The HTMLCanvasElement being hovered over.
+         * @param seriesData The data for the current graph series.
+         * @param cursorElements Object containing references to cursor DOM elements.
+         */
+        function handleMouseMove(e, canvas, seriesData, cursorElements) {
+            const rect = canvas.getBoundingClientRect(); // Get canvas's size and position in viewport
+            const mouseXInCanvasCSS = e.clientX - rect.left; // Mouse X relative to canvas (CSS pixels)
+            const mouseYInCanvasCSS = e.clientY - rect.top; // Mouse Y relative to canvas (CSS pixels)
+
+            // Calculate effective padding and graph dimensions based on the actual rendered size
+            const effectivePaddingX = PADDING * (rect.width / INTRINSIC_CANVAS_WIDTH);
+            const effectivePaddingY = PADDING * (rect.height / INTRINSIC_CANVAS_HEIGHT);
+
+            const graphRenderedWidth = rect.width - 2 * effectivePaddingX;
+            const graphRenderedHeight = rect.height - 2 * effectivePaddingY;
+
+            // Check if cursor is within graph *plotting area* (inside effective padding)
+            if (mouseXInCanvasCSS >= effectivePaddingX && mouseXInCanvasCSS <= rect.width - effectivePaddingX &&
+                mouseYInCanvasCSS >= effectivePaddingY && mouseYInCanvasCSS <= rect.height - effectivePaddingY) {
+
+                // Convert mouseXInCanvasCSS (CSS pixel on rendered canvas) to data X-value
+                const dataXAtMouse = seriesData.minX + (mouseXInCanvasCSS - effectivePaddingX) / (graphRenderedWidth / (seriesData.maxX - seriesData.minX));
+
+                // Find the closest data point's index
+                const closestIndex = findClosestDataPointIndex(seriesData.xValues, dataXAtMouse);
+
+                if (closestIndex !== -1) {
+                    const snappedDataX = seriesData.xValues[closestIndex];
+                    const snappedDataY = seriesData.yValues[closestIndex];
+
+                    // Convert snapped data points back to canvas CSS pixel coordinates (relative to canvas's top-left)
+                    const snappedCanvasXCSS = effectivePaddingX + (snappedDataX - seriesData.minX) * (graphRenderedWidth / (seriesData.maxX - seriesData.minX));
+                    const snappedCanvasYCSS = effectivePaddingY + graphRenderedHeight - (snappedDataY - seriesData.minY) * (graphRenderedHeight / (seriesData.maxY - seriesData.minY));
+
+                    // Position cursor elements relative to the parent div's content box
+                    // Get parent div's offset (which is position:relative)
+                    const parentDiv = canvas.parentNode;
+                    const parentRect = parentDiv.getBoundingClientRect(); // Get the parent div's rect
+
+                    // Corrected hover coordinates relative to the parent div
+                    const hoverX = snappedCanvasXCSS + (rect.left - parentRect.left);
+                    const hoverY = snappedCanvasYCSS + (rect.top - parentRect.top);
+
+                    // Update cursor lines' positions
+                    cursorElements.verticalLine.style.left = `${hoverX}px`;
+                    cursorElements.verticalLine.style.top = `${canvas.offsetTop + effectivePaddingY}px`;
+                    cursorElements.verticalLine.style.height = `${graphRenderedHeight}px`;
+
+                    cursorElements.horizontalLine.style.top = `${hoverY}px`;
+                    cursorElements.horizontalLine.style.left = `${canvas.offsetLeft + effectivePaddingX}px`;
+                    cursorElements.horizontalLine.style.width = `${graphRenderedWidth}px`;
+
+                    // Update value labels' positions and text
+                    cursorElements.xLabel.style.left = `${hoverX}px`;
+                    cursorElements.xLabel.style.top = `${canvas.offsetTop + rect.height - effectivePaddingY + 5}px`;
+                    cursorElements.xLabel.textContent = `X: ${snappedDataX.toFixed(2)}`;
+
+                    cursorElements.yLabel.style.top = `${hoverY - 10}px`;
+                    cursorElements.yLabel.style.left = `${canvas.offsetLeft + effectivePaddingX - 5}px`;
+                    cursorElements.yLabel.textContent = `Y: ${snappedDataY.toFixed(2)}`;
+
+                    // Ensure cursor elements are visible
+                    cursorElements.verticalLine.classList.remove('hidden');
+                    cursorElements.horizontalLine.classList.remove('hidden');
+                    cursorElements.xLabel.classList.remove('hidden');
+                    cursorElements.yLabel.classList.remove('hidden');
+
+                } else {
+                    // No valid data point found, hide cursor
+                    hideCursor(cursorElements);
+                }
+            } else {
+                // Mouse outside plotting area, hide cursor
+                hideCursor(cursorElements);
+            }
+        }
+
+        /**
+         * @brief Hides the cursor lines and labels.
+         * @param cursorElements Object containing references to cursor DOM elements.
+         */
+        function hideCursor(cursorElements) {
+            cursorElements.verticalLine.classList.add('hidden');
+            cursorElements.horizontalLine.classList.add('hidden');
+            cursorElements.xLabel.classList.add('hidden');
+            cursorElements.yLabel.classList.add('hidden');
+        }
+
+        /**
+         * @brief Renders all processed data series as individual graphs.
+         * @param processedSeriesData Array of series data objects.
+         */
+        function renderGraphs(processedSeriesData) {
+            graphsContainer.innerHTML = ''; // Clear previous graphs
+            hideError(); // Clear any existing error messages
+            initialMessageElement.classList.add('hidden'); // Hide initial message
+
+            if (processedSeriesData.length === 0) {
+                initialMessageElement.classList.remove('hidden'); // Show message if no graphs
+                displayError('No valid numeric data series found for graphing. Please check your CSV columns.');
+                return;
+            }
+
+            processedSeriesData.forEach(series => {
+                // Create container div for each graph
+                const graphDiv = document.createElement('div');
+                graphDiv.className = 'bg-gray-800 p-6 rounded-2xl shadow-lg flex flex-col items-center w-full max-w-4xl relative';
+
+                // Graph title
+                const title = document.createElement('h2');
+                title.className = 'text-2xl font-semibold text-blue-400 mb-4 text-center';
+                title.textContent = series.name;
+
+                // X-axis label description
+                const xAxisDesc = document.createElement('p');
+                xAxisDesc.className = 'text-sm text-gray-400 mb-2';
+                xAxisDesc.innerHTML = `(X-Axis: <span class="font-semibold">${series.xAxisLabel}</span>)`;
+
+                // Canvas element for drawing the graph
+                const canvas = document.createElement('canvas');
+                canvas.className = 'border border-gray-700 rounded-lg bg-gray-700 shadow-inner cursor-crosshair';
+                canvas.style.width = '100%';
+                canvas.style.maxWidth = `${INTRINSIC_CANVAS_WIDTH}px`;
+                canvas.style.height = 'auto'; // Maintain aspect ratio based on width
+
+                // --- Create Cursor Elements (initially hidden) ---
+                const verticalLine = document.createElement('div');
+                verticalLine.className = 'absolute bg-blue-300 pointer-events-none hidden';
+                verticalLine.style.width = '1px';
+
+                const horizontalLine = document.createElement('div');
+                horizontalLine.className = 'absolute bg-blue-300 pointer-events-none hidden';
+                horizontalLine.style.height = '1px';
+
+                const xLabel = document.createElement('div');
+                xLabel.className = 'absolute bg-gray-700 text-blue-300 text-xs px-2 py-1 rounded shadow-md pointer-events-none whitespace-nowrap hidden';
+                xLabel.style.transform = 'translateX(-50%)';
+                xLabel.style.minWidth = '50px';
+                xLabel.style.textAlign = 'center';
+
+                const yLabel = document.createElement('div');
+                yLabel.className = 'absolute bg-gray-700 text-blue-300 text-xs px-2 py-1 rounded shadow-md pointer-events-none whitespace-nowrap hidden';
+                yLabel.style.transform = 'translateX(-100%)';
+                yLabel.style.minWidth = '50px';
+                yLabel.style.textAlign = 'right';
+
+                // Store references to cursor elements for manipulation in event handlers
+                const cursorElements = {
+                    verticalLine,
+                    horizontalLine,
+                    xLabel,
+                    yLabel
+                };
+
+                // Append elements to the graph container
+                graphDiv.appendChild(title);
+                graphDiv.appendChild(xAxisDesc);
+                graphDiv.appendChild(canvas);
+                graphDiv.appendChild(verticalLine);
+                graphDiv.appendChild(horizontalLine);
+                graphDiv.appendChild(xLabel);
+                graphDiv.appendChild(yLabel);
+
+                graphsContainer.appendChild(graphDiv);
+
+                // Draw the graph on the canvas
+                drawSingleSeriesGraph(
+                    canvas,
+                    series.name,
+                    series.xValues,
+                    series.yValues,
+                    series.minX, series.maxX, series.minY, series.maxY,
+                    series.color,
+                    series.xAxisLabel
+                );
+
+                // Add event listeners for cursor interaction
+                canvas.addEventListener('mousemove', (e) => handleMouseMove(e, canvas, series, cursorElements));
+                canvas.addEventListener('mouseleave', () => hideCursor(cursorElements));
+            });
+        }
+
+        // --- Event Listener for File Input ---
+        csvUploadInput.addEventListener('change', (event) => {
+            hideError(); // Clear previous errors
+            const file = event.target.files[0];
+            if (file) {
+                if (!file.name.endsWith('.csv')) {
+                    displayError('Please select a .csv file.');
+                    graphsContainer.innerHTML = ''; // Clear graphs if wrong file type
+                    initialMessageElement.classList.remove('hidden'); // Show initial message
+                    return;
+                }
+
+                const reader = new FileReader();
+
+                reader.onload = (e) => {
+                    const text = e.target.result;
+                    try {
+                        const parsedData = parseCSV(text);
+                        if (parsedData.length <= 1 || parsedData[0].length < 2) {
+                            displayError('CSV must contain at least a header row and two columns (X-axis and one Y-axis series).');
+                            graphsContainer.innerHTML = '';
+                            initialMessageElement.classList.remove('hidden');
+                            return;
+                        }
+
+                        const headers = parsedData[0];
+                        const rawDataRows = parsedData.slice(1);
+
+                        // Process data for each series
+                        const processedSeriesData = [];
+                        const xValues = rawDataRows.map(row => parseFloat(row[0])).filter(val => !isNaN(val));
+
+                        if (xValues.length === 0) {
+                            displayError(`No valid numeric data found for X-axis (column "${headers[0]}").`);
+                            graphsContainer.innerHTML = '';
+                            initialMessageElement.classList.remove('hidden');
+                            return;
+                        }
+
+                        for (let colIndex = 1; colIndex < headers.length; colIndex++) {
+                            const yValues = rawDataRows.map(row => parseFloat(row[colIndex])).filter(val => !isNaN(val));
+
+                            if (yValues.length > 0) {
+                                const minY = Math.min(...yValues);
+                                const maxY = Math.max(...yValues);
+                                processedSeriesData.push({
+                                    id: `series-${colIndex}`,
+                                    name: headers[colIndex],
+                                    xValues,
+                                    yValues,
+                                    minX: Math.min(...xValues), // Ensure X-axis scale is consistent
+                                    maxX: Math.max(...xValues),
+                                    minY,
+                                    maxY,
+                                    color: getColor(colIndex - 1),
+                                    xAxisLabel: headers[0]
+                                });
+                            }
+                        }
+
+                        renderGraphs(processedSeriesData); // Render all graphs
+                    } catch (err) {
+                        displayError('Error parsing CSV file: ' + err.message);
+                        graphsContainer.innerHTML = '';
+                        initialMessageElement.classList.remove('hidden');
+                    }
+                };
+
+                reader.onerror = () => {
+                    displayError('Failed to read file.');
+                    graphsContainer.innerHTML = '';
+                    initialMessageElement.classList.remove('hidden');
+                };
+
+                reader.readAsText(file); // Read the file content as text
+            } else {
+                graphsContainer.innerHTML = ''; // Clear graphs if no file selected
+                initialMessageElement.classList.remove('hidden'); // Show initial message
+            }
+        });
+    </script>
+</body>
+</html>
