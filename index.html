@@ -512,7 +512,7 @@
             geminiLoading.classList.remove('hidden');
             geminiOutput.textContent = ''; // Clear previous output
 
-            let prompt = "You are an AI assistant for data analysis. Summarize the key trends, relationships, or interesting observations from the following numerical data series. Focus on the progression of values along the X-axis (which represents " + globalXAxisLabel + " if available).\n\n";
+            let prompt = "You are an AI assistant for a karting drivers tire data analysis. Summarize the key trends, relationships, or interesting observations from the following numerical data series. Focus on the progression of values along the X-axis (which represents " + globalXAxisLabel + " if available).\n\n";
             prompt += "Data Series:\n";
 
             allSeriesData.forEach(series => {
@@ -521,7 +521,7 @@
                 // For simplicity, we are sending aggregated min/max info only.
             });
 
-            prompt += "\nProvide a concise, easy-to-understand summary. Highlight any significant increases, decreases, plateaus, or correlations between series. Limit your response to 3-5 sentences.";
+            prompt += "\nProvide a concise, easy-to-understand summary. Highlight any significant increases, decreases, plateaus, or correlations between series and provide insight into how driving style can be adjusted to benefit. Limit your response to 3-5 sentences.";
 
             let chatHistory = [];
             chatHistory.push({ role: "user", parts: [{ text: prompt }] });
@@ -716,7 +716,7 @@
 
             // Show AI Insights section
             aiInsightsSection.classList.remove('hidden');
-            geminiOutput.textContent = 'Click "✨ Summarize Data Trends" to get AI insights.'; // Reset AI output message
+            geminiOutput.textContent = 'Click "✨ AI Data Analysis" to get AI insights.'; // Reset AI output message
         }
 
         // --- Event Listener for File Input ---
