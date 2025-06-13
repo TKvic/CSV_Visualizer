@@ -72,13 +72,13 @@
 <body class="min-h-screen bg-black p-4 flex flex-col items-center text-gray-100">
 
     <h1 class="text-4xl font-bold text-red-500 mb-6 rounded-lg p-2 shadow-lg">
-        R22 TIMS Data Viewer
+        R22 T.I.M.S Data Viewer
     </h1>
 
     <!-- File input section -->
     <div class="bg-gray-950 p-6 rounded-2xl shadow-lg mb-8 w-full max-w-2xl flex flex-col items-center border border-gray-800">
         <label for="csv-upload" class="block text-lg font-medium text-gray-100 mb-4">
-            Upload a CSV File to view your data:
+            Upload a CSV File to view Data:
         </label>
         <input
             type="file"
@@ -101,7 +101,7 @@
     <div id="ai-insights-section" class="bg-gray-950 p-6 rounded-2xl shadow-lg mb-8 w-full max-w-4xl flex flex-col items-center border border-gray-800 hidden">
         <h2 class="text-2xl font-semibold text-red-500 mb-4">AI Data Insights</h2>
         <button id="summarize-button" class="bg-red-700 hover:bg-red-800 text-white font-bold py-2 px-4 rounded-full shadow-md transition-all duration-300 mb-4">
-            ✨ AI Data Summary
+            ✨ AI Data Analysis
         </button>
         <div id="gemini-loading" class="hidden text-red-400">Loading AI Summary...</div>
         <div id="gemini-output" class="w-full text-gray-300 bg-gray-800 p-4 rounded-lg text-sm whitespace-pre-wrap break-words border border-gray-700">
@@ -113,7 +113,7 @@
     <!-- Graphs display section -->
     <div id="graphs-container" class="flex flex-col items-center gap-0 w-full max-w-5xl relative">
         <div id="initial-message" class="bg-gray-950 p-6 rounded-2xl shadow-lg w-full max-w-2xl text-center text-gray-300 border border-gray-800">
-            <p>Waiting For Data</p>
+            <p>Waiting for Data</p>
         </div>
         <!-- Global vertical cursor line - positioned here to span all graphs -->
         <div id="vertical-cursor-global"></div>
@@ -123,7 +123,8 @@
 
     <script>
         // --- Global Variables and Constants ---
-        const PADDING = 40; // Increased padding for Y-axis labels
+        const X_PADDING = 60; // Horizontal padding (for left/right and Y-axis labels)
+        const Y_PADDING = 25; // Vertical padding (for top/bottom, keeps graphs closer)
         const INTRINSIC_CANVAS_WIDTH = 800; // Designed drawing width of the canvas in pixels
         const INTRINSIC_CANVAS_HEIGHT = 200; // Adjusted height for more compact, stacked graphs
         const FONT_COLOR = '#e5e7eb'; // Light gray for text
@@ -265,8 +266,8 @@
             ctx.fillStyle = 'black'; // Explicitly set canvas background to black
             ctx.fillRect(0, 0, INTRINSIC_CANVAS_WIDTH, INTRINSIC_CANVAS_HEIGHT);
 
-            const graphWidth = INTRINSIC_CANVAS_WIDTH - 2 * PADDING;
-            const graphHeight = INTRINSIC_CANVAS_HEIGHT - 2 * PADDING;
+            const graphWidth = INTRINSIC_CANVAS_WIDTH - 2 * X_PADDING;
+            const graphHeight = INTRINSIC_CANVAS_HEIGHT - 2 * Y_PADDING;
 
             // Scaling factors to map data to canvas coordinates
             const scaleX = (globalMaxX - globalMinX === 0) ? 1 : graphWidth / (globalMaxX - globalMinX);
@@ -278,20 +279,20 @@
 
             const numYGridLines = 4; // Adjust number of horizontal grid lines if needed
             for (let i = 0; i <= numYGridLines; i++) {
-                const yPos = PADDING + i * (graphHeight / numYGridLines);
+                const yPos = Y_PADDING + i * (graphHeight / numYGridLines);
                 ctx.beginPath();
-                ctx.moveTo(PADDING, yPos);
-                ctx.lineTo(PADDING + graphWidth, yPos);
+                ctx.moveTo(X_PADDING, yPos);
+                ctx.lineTo(X_PADDING + graphWidth, yPos);
                 ctx.stroke();
             }
 
             // Draw vertical grid lines
             const numXGridLines = 7; // Number of vertical grid lines, adjust as needed
             for (let i = 0; i <= numXGridLines; i++) {
-                const xPos = PADDING + i * (graphWidth / numXGridLines);
+                const xPos = X_PADDING + i * (graphWidth / numXGridLines);
                 ctx.beginPath();
-                ctx.moveTo(xPos, PADDING);
-                ctx.lineTo(xPos, PADDING + graphHeight);
+                ctx.moveTo(xPos, Y_PADDING);
+                ctx.lineTo(xPos, Y_PADDING + graphHeight);
                 ctx.stroke();
             }
 
@@ -308,9 +309,9 @@
 
                     if (!isNaN(x) && !isNaN(y)) {
                         // Map data coordinates to canvas pixel coordinates using global X-scale
-                        const canvasX = PADDING + (x - globalMinX) * scaleX;
+                        const canvasX = X_PADDING + (x - globalMinX) * scaleX;
                         // Y-axis is inverted in canvas (0 is top, max is bottom)
-                        const canvasY = PADDING + graphHeight - (y - minY) * scaleY;
+                        const canvasY = Y_PADDING + graphHeight - (y - minY) * scaleY;
 
                         if (!firstPointDrawn) {
                             ctx.moveTo(canvasX, canvasY);
@@ -332,23 +333,22 @@
             // Y-axis Label (positioned at top-left, horizontal)
             ctx.textAlign = 'left';
             ctx.textBaseline = 'top';
-            ctx.fillText(seriesName, PADDING, PADDING - 15); // Adjusted Y position for title
+            ctx.fillText(seriesName, X_PADDING, Y_PADDING - 15); // Adjusted Y position for title
 
             // Y-axis values (vertical, left of axis)
             ctx.textAlign = 'right';
             ctx.textBaseline = 'middle';
             // Tick values for Y-axis (min and max)
-            ctx.fillText(minY.toFixed(2), PADDING - 5, INTRINSIC_CANVAS_HEIGHT - PADDING - 5);
-            ctx.fillText(maxY.toFixed(2), PADDING - 5, PADDING + 5);
+            ctx.fillText(minY.toFixed(2), X_PADDING - 5, INTRINSIC_CANVAS_HEIGHT - Y_PADDING - 5);
+            ctx.fillText(maxY.toFixed(2), X_PADDING - 5, Y_PADDING + 5);
 
             // Main Y-axis line (left)
             ctx.beginPath();
-            ctx.moveTo(PADDING, PADDING);
-            ctx.lineTo(PADDING, INTRINSIC_CANVAS_HEIGHT - PADDING);
+            ctx.moveTo(X_PADDING, Y_PADDING);
+            ctx.lineTo(X_PADDING, INTRINSIC_CANVAS_HEIGHT - Y_PADDING);
             ctx.stroke();
 
-            // Main X-axis line (bottom) - only for the last graph container to match the image style
-            // This is handled by a separate DOM element now, so no need to draw here.
+            // Main X-axis line (bottom) - this is handled by a separate DOM element
         }
 
         /**
@@ -376,18 +376,18 @@
             const mouseYInCanvasCSS = e.clientY - rect.top; // Mouse Y relative to canvas (CSS pixels)
 
             // Calculate effective padding and graph dimensions based on the actual rendered size
-            const effectivePaddingX = PADDING * (rect.width / INTRINSIC_CANVAS_WIDTH);
-            const effectivePaddingY = PADDING * (rect.height / INTRINSIC_CANVAS_HEIGHT);
+            const effectiveXPadding = X_PADDING * (rect.width / INTRINSIC_CANVAS_WIDTH);
+            const effectiveYPadding = Y_PADDING * (rect.height / INTRINSIC_CANVAS_HEIGHT);
 
-            const graphRenderedWidth = rect.width - 2 * effectivePaddingX;
-            const graphRenderedHeight = rect.height - 2 * effectivePaddingY;
+            const graphRenderedWidth = rect.width - 2 * effectiveXPadding;
+            const graphRenderedHeight = rect.height - 2 * effectiveYPadding;
 
             // Check if cursor is within graph *plotting area* (inside effective padding)
-            if (mouseXInCanvasCSS >= effectivePaddingX && mouseXInCanvasCSS <= rect.width - effectivePaddingX &&
-                mouseYInCanvasCSS >= effectivePaddingY && mouseYInCanvasCSS <= rect.height - effectivePaddingY) {
+            if (mouseXInCanvasCSS >= effectiveXPadding && mouseXInCanvasCSS <= rect.width - effectiveXPadding &&
+                mouseYInCanvasCSS >= effectiveYPadding && mouseYInCanvasCSS <= rect.height - effectiveYPadding) {
 
                 // Convert mouseXInCanvasCSS (CSS pixel on rendered canvas) to data X-value
-                const dataXAtMouse = globalMinX + (mouseXInCanvasCSS - effectivePaddingX) / (graphRenderedWidth / (globalMaxX - globalMinX));
+                const dataXAtMouse = globalMinX + (mouseXInCanvasCSS - effectiveXPadding) / (graphRenderedWidth / (globalMaxX - globalMinX));
 
                 // Find the closest data point's index
                 const closestIndex = findClosestDataPointIndex(seriesData.xValues, dataXAtMouse);
@@ -400,8 +400,8 @@
                     const scaleXGlobal = (globalMaxX - globalMinX === 0) ? 1 : graphRenderedWidth / (globalMaxX - globalMinX);
                     const scaleYLocal = (seriesData.maxY - seriesData.minY === 0) ? 1 : graphRenderedHeight / (seriesData.maxY - seriesData.minY);
 
-                    const snappedCanvasXCSS = effectivePaddingX + (snappedDataX - globalMinX) * scaleXGlobal;
-                    const snappedCanvasYCSS = effectivePaddingY + graphRenderedHeight - (snappedDataY - seriesData.minY) * scaleYLocal;
+                    const snappedCanvasXCSS = effectiveXPadding + (snappedDataX - globalMinX) * scaleXGlobal;
+                    const snappedCanvasYCSS = effectiveYPadding + graphRenderedHeight - (snappedDataY - seriesData.minY) * scaleYLocal;
 
                     // --- Update Global Vertical Cursor and X-Label ---
                     const graphsContainerRect = graphsContainer.getBoundingClientRect();
@@ -420,12 +420,12 @@
 
                     // --- Update Local Horizontal Cursor and Y-Label ---
                     cursorElements.horizontalLine.style.top = `${canvas.offsetTop + snappedCanvasYCSS}px`;
-                    cursorElements.horizontalLine.style.left = `${canvas.offsetLeft + effectivePaddingX}px`;
+                    cursorElements.horizontalLine.style.left = `${canvas.offsetLeft + effectiveXPadding}px`;
                     cursorElements.horizontalLine.style.width = `${graphRenderedWidth}px`;
                     cursorElements.horizontalLine.style.display = 'block';
 
                     cursorElements.yLabel.style.top = `${canvas.offsetTop + snappedCanvasYCSS - 10}px`;
-                    cursorElements.yLabel.style.left = `${canvas.offsetLeft + effectivePaddingX - 5}px`;
+                    cursorElements.yLabel.style.left = `${canvas.offsetLeft + effectiveXPadding - 5}px`;
                     cursorElements.yLabel.textContent = `${snappedDataY.toFixed(2)}`;
                     cursorElements.yLabel.style.display = 'block';
 
@@ -672,9 +672,9 @@
                 span.textContent = tickValue.toFixed(0); // Display as integers
                 span.style.position = 'absolute';
                 // Calculate position based on graph width and padding
-                const graphWidthAvailable = INTRINSIC_CANVAS_WIDTH - 2 * PADDING;
+                const graphWidthAvailable = INTRINSIC_CANVAS_WIDTH - 2 * X_PADDING; // Use X_PADDING here
                 const percentPosition = (tickValue - globalMinX) / (globalMaxX - globalMinX);
-                const leftPosition = PADDING + (percentPosition * graphWidthAvailable);
+                const leftPosition = X_PADDING + (percentPosition * graphWidthAvailable); // Use X_PADDING here
                 span.style.left = `${leftPosition}px`;
                 span.style.transform = 'translateX(-50%)'; // Center text on the position
                 commonXAxisRuler.appendChild(span);
@@ -697,10 +697,10 @@
             const rulerRect = commonXAxisRuler.getBoundingClientRect();
             // Get the effective graph plotting width from the first canvas's rendered size
             const firstCanvas = graphsContainer.querySelector('canvas');
-            let effectiveGraphRenderedWidth = INTRINSIC_CANVAS_WIDTH - 2 * PADDING; // Default if canvas not found
+            let effectiveGraphRenderedWidth = INTRINSIC_CANVAS_WIDTH - 2 * X_PADDING; // Default if canvas not found, use X_PADDING
             if (firstCanvas) {
                 const firstCanvasRect = firstCanvas.getBoundingClientRect();
-                effectiveGraphRenderedWidth = firstCanvasRect.width - 2 * (PADDING * (firstCanvasRect.width / INTRINSIC_CANVAS_WIDTH));
+                effectiveGraphRenderedWidth = firstCanvasRect.width - 2 * (X_PADDING * (firstCanvasRect.width / INTRINSIC_CANVAS_WIDTH)); // Use X_PADDING
             }
 
             const spaceOutsideGraph = (rulerRect.width - effectiveGraphRenderedWidth) / 2;
@@ -820,6 +820,9 @@
 
         // Add event listener for the AI summarize button
         summarizeButton.addEventListener('click', summarizeDataTrends);
+
+        // Add event listener to the graphs container to handle global cursor hiding
+        graphsContainer.addEventListener('mouseleave', hideGlobalXCursor);
     </script>
 </body>
 </html>
