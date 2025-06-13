@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>R22 Data Viewer</title>
+    <title>CSV Data Multi-Graph Visualizer</title>
     <!-- Tailwind CSS CDN -->
     <script src="https://cdn.tailwindcss.com"></script>
     <!-- Google Fonts - Inter for clean typography -->
@@ -12,37 +12,84 @@
         /* Custom styles for the app */
         body {
             font-family: 'Inter', sans-serif;
+            -webkit-font-smoothing: antialiased; /* Smoother fonts */
+            -moz-osx-font-smoothing: grayscale;
         }
         canvas {
             /* Ensures canvas scales correctly within its container while maintaining aspect ratio */
             display: block;
+            width: 100%; /* Take full width of parent */
             max-width: 800px; /* Limits the max width of the canvas */
             height: auto; /* Maintains aspect ratio */
             margin: 0 auto; /* Center the canvas within its container */
         }
+        /* Specific styling for the global X-axis container */
+        #global-x-axis-ruler {
+            position: relative; /* For absolute positioning of cursor labels */
+            height: 60px; /* Space for X-axis labels */
+            background-color: black;
+            border-top: 1px solid #4b5563; /* Axis color */
+            padding: 10px 0; /* No horizontal padding here, spans the width */
+            display: flex;
+            justify-content: space-between; /* Spacing for tick values */
+            align-items: flex-start;
+            font-size: 14px;
+            color: #e5e7eb;
+            width: 100%; /* Spans the full width of the graphs container */
+            max-width: 800px; /* Aligns with graph width */
+            box-sizing: border-box; /* Include padding in width */
+            padding-left: var(--padding-left-computed); /* Dynamic padding */
+            padding-right: var(--padding-right-computed); /* Dynamic padding */
+        }
+        /* Style for the shared global vertical cursor */
+        #vertical-cursor-global {
+            position: absolute;
+            background-color: #ff0000; /* Red cursor line */
+            width: 1px;
+            pointer-events: none;
+            z-index: 50; /* Ensure it's above graphs */
+            display: none; /* Hidden by default */
+            /* Top and height will be set dynamically */
+        }
+        /* Style for the global X-label that moves with the cursor */
+        #global-x-label {
+            position: absolute;
+            background-color: #1a1a1a; /* Dark background for label */
+            color: #ff0000; /* Red text for label */
+            font-size: 12px;
+            padding: 2px 5px;
+            border-radius: 3px;
+            pointer-events: none;
+            transform: translateX(-50%); /* Center horizontally */
+            z-index: 50;
+            display: none; /* Hidden by default */
+            /* Top and left will be set dynamically */
+            bottom: 5px; /* Position relative to its parent container */
+        }
+
     </style>
 </head>
-<body class="min-h-screen bg-gray-900 p-4 flex flex-col items-center text-gray-200">
+<body class="min-h-screen bg-black p-4 flex flex-col items-center text-gray-100">
 
-    <h1 class="text-4xl font-bold text-blue-400 mb-6 rounded-lg p-2 shadow-lg">
-        R22 Data Viewer
+    <h1 class="text-4xl font-bold text-red-500 mb-6 rounded-lg p-2 shadow-lg">
+        CSV Data Multi-Graph Visualizer
     </h1>
 
     <!-- File input section -->
-    <div class="bg-gray-800 p-6 rounded-2xl shadow-lg mb-8 w-full max-w-2xl flex flex-col items-center">
-        <label for="csv-upload" class="block text-lg font-medium text-gray-200 mb-4">
-            Upload a CSV File to view:
+    <div class="bg-gray-950 p-6 rounded-2xl shadow-lg mb-8 w-full max-w-2xl flex flex-col items-center border border-gray-800">
+        <label for="csv-upload" class="block text-lg font-medium text-gray-100 mb-4">
+            Upload a CSV File to view its graphs:
         </label>
         <input
             type="file"
             id="csv-upload"
             accept=".csv"
-            class="block w-full text-sm text-gray-400
+            class="block w-full text-sm text-gray-300
                     file:mr-4 file:py-2 file:px-4
                     file:rounded-full file:border-0
                     file:text-sm file:font-semibold
-                    file:bg-blue-900 file:text-blue-300
-                    hover:file:bg-blue-700 hover:file:text-white cursor-pointer
+                    file:bg-red-900 file:text-red-200
+                    hover:file:bg-red-800 hover:file:text-white cursor-pointer
                     rounded-lg shadow-sm"
         />
         <p id="error-message" class="mt-4 text-red-300 text-sm font-medium p-2 bg-red-900 rounded-lg w-full text-center hidden">
@@ -51,27 +98,42 @@
     </div>
 
     <!-- Graphs display section -->
-    <div id="graphs-container" class="flex flex-col items-center gap-8 mt-8 w-full max-w-5xl">
-        <div id="initial-message" class="bg-gray-800 p-6 rounded-2xl shadow-lg w-full max-w-2xl text-center text-gray-400">
+    <div id="graphs-container" class="flex flex-col items-center gap-0 w-full max-w-5xl relative">
+        <div id="initial-message" class="bg-gray-950 p-6 rounded-2xl shadow-lg w-full max-w-2xl text-center text-gray-300 border border-gray-800">
             <p>Upload a CSV file above to see the graphs!</p>
             <p class="text-sm mt-2">
                 The first column will be used for the X-axis (time/index), and each subsequent numeric column will be displayed as a separate graph.
             </p>
         </div>
+        <!-- Global vertical cursor line - positioned here to span all graphs -->
+        <div id="vertical-cursor-global"></div>
+        <div id="global-x-label"></div>
         <!-- Graphs will be dynamically added here -->
     </div>
 
     <script>
         // --- Global Variables and Constants ---
-        const PADDING = 40; // Padding around the graph drawing area within the canvas
+        const PADDING = 25; // Reduced padding for tighter graphs
         const INTRINSIC_CANVAS_WIDTH = 800; // Designed drawing width of the canvas in pixels
-        const INTRINSIC_CANVAS_HEIGHT = 500; // Designed drawing height of the canvas in pixels
+        const INTRINSIC_CANVAS_HEIGHT = 200; // Adjusted height for more compact, stacked graphs
+        const FONT_COLOR = '#e5e7eb'; // Light gray for text
+        const AXIS_COLOR = '#4b5563'; // Darker gray for axis lines
+        const GRID_COLOR = 'rgba(255, 0, 0, 0.2)'; // Faint red for grid lines
+        const DATA_LINE_COLOR = '#ff0000'; // Pure red for data lines
+        const CURSOR_COLOR = '#ff0000'; // Pure red for cursor lines and labels
 
         // Elements from the DOM
         const csvUploadInput = document.getElementById('csv-upload');
         const graphsContainer = document.getElementById('graphs-container');
         const errorMessageElement = document.getElementById('error-message');
         const initialMessageElement = document.getElementById('initial-message');
+        const globalVerticalCursor = document.getElementById('vertical-cursor-global');
+        const globalXLabel = document.getElementById('global-x-label');
+
+        let allSeriesData = []; // To store all processed series data globally
+        let globalMinX = 0; // Overall min X across all series
+        let globalMaxX = 0; // Overall max X across all series
+        let globalXAxisLabel = ''; // To store the X-axis label from the first column
 
         // --- Helper Functions ---
 
@@ -90,25 +152,6 @@
         function hideError() {
             errorMessageElement.classList.add('hidden');
             errorMessageElement.textContent = '';
-        }
-
-        /**
-         * @brief Generates a distinct color based on an index for graph lines.
-         * @param index The index of the series.
-         * @return A CSS color string.
-         */
-        function getColor(index) {
-            const colors = [
-                '#3b82f6', // Blue (Tailwind blue-500)
-                '#ef4444', // Red (Tailwind red-500)
-                '#22c55e', // Green (Tailwind green-500)
-                '#f97316', // Orange (Tailwind orange-500)
-                '#8b5cf6', // Purple (Tailwind violet-500)
-                '#ec4899', // Pink (Tailwind pink-500)
-                '#06b6d4', // Cyan (Tailwind cyan-500)
-                '#eab308', // Yellow (Tailwind yellow-500)
-            ];
-            return colors[index % colors.length];
         }
 
         /**
@@ -190,14 +233,11 @@
          * @param seriesName The name of the data series (title for the Y-axis).
          * @param xValues Array of numeric X-axis values.
          * @param yValues Array of numeric Y-axis values for this series.
-         * @param minX Minimum X-value for scaling.
-         * @param maxX Maximum X-value for scaling.
          * @param minY Minimum Y-value for this series' scaling.
          * @param maxY Maximum Y-value for this series' scaling.
          * @param seriesColor Color for the line of this series.
-         * @param xAxisLabel Label for the X-axis.
          */
-        function drawSingleSeriesGraph(canvas, seriesName, xValues, yValues, minX, maxX, minY, maxY, seriesColor, xAxisLabel) {
+        function drawSingleSeriesGraph(canvas, seriesName, xValues, yValues, minY, maxY, seriesColor) {
             const ctx = canvas.getContext('2d');
             const dpr = window.devicePixelRatio || 1; // Device pixel ratio for sharper graphics
             canvas.width = INTRINSIC_CANVAS_WIDTH * dpr; // Set internal resolution for high-DPI screens
@@ -205,30 +245,21 @@
             ctx.scale(dpr, dpr); // Scale context to match device pixel ratio
 
             ctx.clearRect(0, 0, INTRINSIC_CANVAS_WIDTH, INTRINSIC_CANVAS_HEIGHT); // Clear drawing area
+            ctx.fillStyle = 'black'; // Explicitly set canvas background to black
+            ctx.fillRect(0, 0, INTRINSIC_CANVAS_WIDTH, INTRINSIC_CANVAS_HEIGHT);
 
             const graphWidth = INTRINSIC_CANVAS_WIDTH - 2 * PADDING;
             const graphHeight = INTRINSIC_CANVAS_HEIGHT - 2 * PADDING;
 
             // Scaling factors to map data to canvas coordinates
-            const scaleX = (maxX - minX === 0) ? 1 : graphWidth / (maxX - minX);
+            const scaleX = (globalMaxX - globalMinX === 0) ? 1 : graphWidth / (globalMaxX - globalMinX);
             const scaleY = (maxY - minY === 0) ? 1 : graphHeight / (maxY - minY);
 
-            // Draw grid lines
-            ctx.strokeStyle = 'rgba(107, 114, 128, 0.3)'; // Lighter gray, semi-transparent
+            // Draw horizontal grid lines
+            ctx.strokeStyle = GRID_COLOR; // Faint red for grid
             ctx.lineWidth = 0.5;
 
-            // Vertical grid lines
-            const numXGridLines = 5;
-            for (let i = 0; i <= numXGridLines; i++) {
-                const xPos = PADDING + i * (graphWidth / numXGridLines);
-                ctx.beginPath();
-                ctx.moveTo(xPos, PADDING);
-                ctx.lineTo(xPos, PADDING + graphHeight);
-                ctx.stroke();
-            }
-
-            // Horizontal grid lines
-            const numYGridLines = 5;
+            const numYGridLines = 4; // Adjust number of horizontal grid lines if needed
             for (let i = 0; i <= numYGridLines; i++) {
                 const yPos = PADDING + i * (graphHeight / numYGridLines);
                 ctx.beginPath();
@@ -237,21 +268,30 @@
                 ctx.stroke();
             }
 
+            // Draw vertical grid lines
+            const numXGridLines = 7; // Number of vertical grid lines, adjust as needed
+            for (let i = 0; i <= numXGridLines; i++) {
+                const xPos = PADDING + i * (graphWidth / numXGridLines);
+                ctx.beginPath();
+                ctx.moveTo(xPos, PADDING);
+                ctx.lineTo(xPos, PADDING + graphHeight);
+                ctx.stroke();
+            }
+
             // Draw data line
             ctx.beginPath();
-            ctx.strokeStyle = seriesColor;
+            ctx.strokeStyle = seriesColor; // Use the passed seriesColor (red)
             ctx.lineWidth = 2;
 
             if (xValues.length > 0 && yValues.length > 0) {
-                // Iterate through data points and draw the line
                 let firstPointDrawn = false;
                 for (let i = 0; i < xValues.length; i++) {
                     const x = xValues[i];
                     const y = yValues[i];
 
                     if (!isNaN(x) && !isNaN(y)) {
-                        // Map data coordinates to canvas pixel coordinates
-                        const canvasX = PADDING + (x - minX) * scaleX;
+                        // Map data coordinates to canvas pixel coordinates using global X-scale
+                        const canvasX = PADDING + (x - globalMinX) * scaleX;
                         // Y-axis is inverted in canvas (0 is top, max is bottom)
                         const canvasY = PADDING + graphHeight - (y - minY) * scaleY;
 
@@ -261,54 +301,59 @@
                         } else {
                             ctx.lineTo(canvasX, canvasY);
                         }
-                        // Draw a small circle at each data point
-                        ctx.arc(canvasX, canvasY, 3, 0, Math.PI * 2);
                     }
                 }
             }
             ctx.stroke(); // Finalize the line drawing
 
             // Draw axes and labels
-            ctx.strokeStyle = '#9ca3af'; // Light gray for axes in dark mode
-            ctx.fillStyle = '#e5e7eb'; // Lighter text color in dark mode
+            ctx.strokeStyle = AXIS_COLOR; // Darker gray for axis lines
+            ctx.fillStyle = FONT_COLOR; // Light gray for text
             ctx.lineWidth = 1;
-            ctx.font = '12px Inter, sans-serif';
+            ctx.font = '14px Inter, sans-serif'; // Slightly larger font for axis labels
 
-            // X-axis
-            ctx.beginPath();
-            ctx.moveTo(PADDING, INTRINSIC_CANVAS_HEIGHT - PADDING);
-            ctx.lineTo(INTRINSIC_CANVAS_WIDTH - PADDING, INTRINSIC_CANVAS_HEIGHT - PADDING);
-            ctx.stroke();
-            // X-axis label
-            ctx.fillText(xAxisLabel || 'X-Axis', INTRINSIC_CANVAS_WIDTH / 2, INTRINSIC_CANVAS_HEIGHT - PADDING + 30);
-            // Min/Max X-axis values
-            ctx.fillText(minX.toFixed(2), PADDING, INTRINSIC_CANVAS_HEIGHT - PADDING + 15);
-            ctx.fillText(maxX.toFixed(2), INTRINSIC_CANVAS_WIDTH - PADDING - 30, INTRINSIC_CANVAS_HEIGHT - PADDING + 15);
+            // Y-axis Label (positioned at top-left, horizontal)
+            ctx.textAlign = 'left';
+            ctx.textBaseline = 'top';
+            ctx.fillText(seriesName, PADDING, PADDING - 15); // Adjusted Y position for title
 
-            // Y-axis
+            // Y-axis values (vertical, left of axis)
+            ctx.textAlign = 'right';
+            ctx.textBaseline = 'middle';
+            // Tick values for Y-axis (min and max)
+            ctx.fillText(minY.toFixed(2), PADDING - 5, INTRINSIC_CANVAS_HEIGHT - PADDING - 5);
+            ctx.fillText(maxY.toFixed(2), PADDING - 5, PADDING + 5);
+
+            // Main Y-axis line (left)
             ctx.beginPath();
             ctx.moveTo(PADDING, PADDING);
             ctx.lineTo(PADDING, INTRINSIC_CANVAS_HEIGHT - PADDING);
             ctx.stroke();
-            ctx.save(); // Save current context state for rotation
-            ctx.translate(PADDING - 30, INTRINSIC_CANVAS_HEIGHT / 2); // Translate to center of Y-axis label area
-            ctx.rotate(-Math.PI / 2); // Rotate text 90 degrees counter-clockwise
-            ctx.fillText(seriesName, 0, 0); // Y-axis label (series name)
-            ctx.restore(); // Restore context state
 
-            // Min/Max Y-axis values
-            ctx.fillText(minY.toFixed(2), PADDING - 35, INTRINSIC_CANVAS_HEIGHT - PADDING + 5);
-            ctx.fillText(maxY.toFixed(2), PADDING - 35, PADDING + 5);
+            // Main X-axis line (bottom) - only for the last graph container to match the image style
+            // This is handled by a separate DOM element now, so no need to draw here.
         }
 
         /**
          * @brief Handles mouse movement over a graph canvas to display the cursor and values.
+         * This now also updates the global X-cursor.
          * @param e The mouse event.
          * @param canvas The HTMLCanvasElement being hovered over.
          * @param seriesData The data for the current graph series.
-         * @param cursorElements Object containing references to cursor DOM elements.
+         * @param cursorElements Object containing references to local cursor DOM elements.
          */
         function handleMouseMove(e, canvas, seriesData, cursorElements) {
+            // ALWAYS redraw the base graph at the start of mouseMove
+            // This ensures previous highlights are cleared before drawing a new one or no highlight
+            drawSingleSeriesGraph(
+                canvas,
+                seriesData.name,
+                seriesData.xValues,
+                seriesData.yValues,
+                seriesData.minY, seriesData.maxY,
+                DATA_LINE_COLOR
+            );
+
             const rect = canvas.getBoundingClientRect(); // Get canvas's size and position in viewport
             const mouseXInCanvasCSS = e.clientX - rect.left; // Mouse X relative to canvas (CSS pixels)
             const mouseYInCanvasCSS = e.clientY - rect.top; // Mouse Y relative to canvas (CSS pixels)
@@ -325,7 +370,7 @@
                 mouseYInCanvasCSS >= effectivePaddingY && mouseYInCanvasCSS <= rect.height - effectivePaddingY) {
 
                 // Convert mouseXInCanvasCSS (CSS pixel on rendered canvas) to data X-value
-                const dataXAtMouse = seriesData.minX + (mouseXInCanvasCSS - effectivePaddingX) / (graphRenderedWidth / (seriesData.maxX - seriesData.minX));
+                const dataXAtMouse = globalMinX + (mouseXInCanvasCSS - effectivePaddingX) / (graphRenderedWidth / (globalMaxX - globalMinX));
 
                 // Find the closest data point's index
                 const closestIndex = findClosestDataPointIndex(seriesData.xValues, dataXAtMouse);
@@ -335,61 +380,104 @@
                     const snappedDataY = seriesData.yValues[closestIndex];
 
                     // Convert snapped data points back to canvas CSS pixel coordinates (relative to canvas's top-left)
-                    const snappedCanvasXCSS = effectivePaddingX + (snappedDataX - seriesData.minX) * (graphRenderedWidth / (seriesData.maxX - seriesData.minX));
-                    const snappedCanvasYCSS = effectivePaddingY + graphRenderedHeight - (snappedDataY - seriesData.minY) * (graphRenderedHeight / (seriesData.maxY - seriesData.minY));
+                    const scaleXGlobal = (globalMaxX - globalMinX === 0) ? 1 : graphRenderedWidth / (globalMaxX - globalMinX);
+                    const scaleYLocal = (seriesData.maxY - seriesData.minY === 0) ? 1 : graphRenderedHeight / (seriesData.maxY - seriesData.minY);
 
-                    // Position cursor elements relative to the parent div's content box
-                    // Get parent div's offset (which is position:relative)
-                    const parentDiv = canvas.parentNode;
-                    const parentRect = parentDiv.getBoundingClientRect(); // Get the parent div's rect
+                    const snappedCanvasXCSS = effectivePaddingX + (snappedDataX - globalMinX) * scaleXGlobal;
+                    const snappedCanvasYCSS = effectivePaddingY + graphRenderedHeight - (snappedDataY - seriesData.minY) * scaleYLocal;
 
-                    // Corrected hover coordinates relative to the parent div
-                    const hoverX = snappedCanvasXCSS + (rect.left - parentRect.left);
-                    const hoverY = snappedCanvasYCSS + (rect.top - parentRect.top);
+                    // --- Update Global Vertical Cursor and X-Label ---
+                    const graphsContainerRect = graphsContainer.getBoundingClientRect();
+                    const canvasOffsetInContainerX = rect.left - graphsContainerRect.left; // Canvas left relative to container
+                    // The global vertical cursor's height now spans all graphs *up to* the common X-axis
+                    // Its position is relative to the `graphs-container` which is `position:relative`
+                    globalVerticalCursor.style.left = `${canvasOffsetInContainerX + snappedCanvasXCSS}px`;
+                    globalVerticalCursor.style.top = `0px`; // Position at top of graphsContainer
+                    globalVerticalCursor.style.height = `${graphsContainerRect.height - 60}px`; // Height of all graphs (minus common X-axis ruler height)
+                    globalVerticalCursor.style.display = 'block';
 
-                    // Update cursor lines' positions
-                    cursorElements.verticalLine.style.left = `${hoverX}px`;
-                    cursorElements.verticalLine.style.top = `${canvas.offsetTop + effectivePaddingY}px`;
-                    cursorElements.verticalLine.style.height = `${graphRenderedHeight}px`;
 
-                    cursorElements.horizontalLine.style.top = `${hoverY}px`;
+                    globalXLabel.style.left = `${canvasOffsetInContainerX + snappedCanvasXCSS}px`;
+                    globalXLabel.textContent = `${snappedDataX.toFixed(2)}`;
+                    globalXLabel.style.display = 'block';
+
+                    // --- Update Local Horizontal Cursor and Y-Label ---
+                    cursorElements.horizontalLine.style.top = `${canvas.offsetTop + snappedCanvasYCSS}px`;
                     cursorElements.horizontalLine.style.left = `${canvas.offsetLeft + effectivePaddingX}px`;
                     cursorElements.horizontalLine.style.width = `${graphRenderedWidth}px`;
+                    cursorElements.horizontalLine.style.display = 'block';
 
-                    // Update value labels' positions and text
-                    cursorElements.xLabel.style.left = `${hoverX}px`;
-                    cursorElements.xLabel.style.top = `${canvas.offsetTop + rect.height - effectivePaddingY + 5}px`;
-                    cursorElements.xLabel.textContent = `X: ${snappedDataX.toFixed(2)}`;
-
-                    cursorElements.yLabel.style.top = `${hoverY - 10}px`;
+                    cursorElements.yLabel.style.top = `${canvas.offsetTop + snappedCanvasYCSS - 10}px`;
                     cursorElements.yLabel.style.left = `${canvas.offsetLeft + effectivePaddingX - 5}px`;
-                    cursorElements.yLabel.textContent = `Y: ${snappedDataY.toFixed(2)}`;
+                    cursorElements.yLabel.textContent = `${snappedDataY.toFixed(2)}`;
+                    cursorElements.yLabel.style.display = 'block';
 
-                    // Ensure cursor elements are visible
-                    cursorElements.verticalLine.classList.remove('hidden');
-                    cursorElements.horizontalLine.classList.remove('hidden');
-                    cursorElements.xLabel.classList.remove('hidden');
-                    cursorElements.yLabel.classList.remove('hidden');
+                    // --- Draw Highlighted Point on Canvas ---
+                    drawGraphHighlight(canvas, snappedCanvasXCSS, snappedCanvasYCSS, DATA_LINE_COLOR);
 
                 } else {
-                    // No valid data point found, hide cursor
-                    hideCursor(cursorElements);
+                    hideLocalCursor(cursorElements);
+                    // No need to redraw here, already redrawn at the start of func
                 }
             } else {
-                // Mouse outside plotting area, hide cursor
-                hideCursor(cursorElements);
+                hideLocalCursor(cursorElements);
+                hideGlobalXCursor(); // This one now only hides when mouse *leaves the whole container*
             }
         }
 
         /**
-         * @brief Hides the cursor lines and labels.
+         * @brief Draws a highlighted circle on the canvas at the snapped data point.
+         * @param canvas The canvas to draw on.
+         * @param x The canvas X-coordinate (CSS pixels) of the point.
+         * @param y The canvas Y-coordinate (CSS pixels) of the point.
+         * @param color The color of the circle.
+         */
+        function drawGraphHighlight(canvas, x, y, color) {
+            const ctx = canvas.getContext('2d');
+            const dpr = window.devicePixelRatio || 1;
+            ctx.save();
+            ctx.scale(dpr, dpr); // Scale context
+
+            ctx.beginPath();
+            ctx.arc(x, y, 6, 0, Math.PI * 2); // Larger circle for highlight
+            ctx.fillStyle = color; // Fill with series color
+            ctx.fill();
+            ctx.strokeStyle = 'white'; // White border for contrast
+            ctx.lineWidth = 1.5;
+            ctx.stroke();
+            ctx.restore();
+        }
+
+        /**
+         * @brief Hides the local cursor lines and labels for a specific graph.
          * @param cursorElements Object containing references to cursor DOM elements.
          */
-        function hideCursor(cursorElements) {
-            cursorElements.verticalLine.classList.add('hidden');
-            cursorElements.horizontalLine.classList.add('hidden');
-            cursorElements.xLabel.classList.add('hidden');
-            cursorElements.yLabel.classList.add('hidden');
+        function hideLocalCursor(cursorElements) {
+            cursorElements.horizontalLine.style.display = 'none';
+            cursorElements.yLabel.style.display = 'none';
+        }
+
+        /**
+         * @brief Hides the global X-axis cursor and its label.
+         */
+        function hideGlobalXCursor() {
+            globalVerticalCursor.style.display = 'none';
+            globalXLabel.style.display = 'none';
+
+            // Redraw all graphs to clear any lingering highlights
+            allSeriesData.forEach(series => {
+                const canvas = document.getElementById(series.canvasId);
+                if (canvas) {
+                     drawSingleSeriesGraph(
+                        canvas,
+                        series.name,
+                        series.xValues,
+                        series.yValues,
+                        series.minY, series.maxY,
+                        DATA_LINE_COLOR
+                    );
+                }
+            });
         }
 
         /**
@@ -397,74 +485,59 @@
          * @param processedSeriesData Array of series data objects.
          */
         function renderGraphs(processedSeriesData) {
-            graphsContainer.innerHTML = ''; // Clear previous graphs
+            graphsContainer.innerHTML = ''; // Clear previous graphs and initial message
             hideError(); // Clear any existing error messages
             initialMessageElement.classList.add('hidden'); // Hide initial message
 
             if (processedSeriesData.length === 0) {
-                initialMessageElement.classList.remove('hidden'); // Show message if no graphs
+                graphsContainer.appendChild(initialMessageElement); // Re-add initial message
+                initialMessageElement.classList.remove('hidden');
                 displayError('No valid numeric data series found for graphing. Please check your CSV columns.');
                 return;
             }
 
-            processedSeriesData.forEach(series => {
+            // Append global cursor elements back to the container
+            graphsContainer.appendChild(globalVerticalCursor);
+            graphsContainer.appendChild(globalXLabel);
+
+
+            processedSeriesData.forEach((series, index) => {
                 // Create container div for each graph
                 const graphDiv = document.createElement('div');
-                graphDiv.className = 'bg-gray-800 p-6 rounded-2xl shadow-lg flex flex-col items-center w-full max-w-4xl relative';
+                graphDiv.className = 'bg-black w-full max-w-4xl relative overflow-hidden';
+                // Add top border, but not for the first graph
+                if (index > 0) {
+                     graphDiv.style.borderTop = '1px solid #4b5563';
+                }
 
-                // Graph title
-                const title = document.createElement('h2');
-                title.className = 'text-2xl font-semibold text-blue-400 mb-4 text-center';
-                title.textContent = series.name;
-
-                // X-axis label description
-                const xAxisDesc = document.createElement('p');
-                xAxisDesc.className = 'text-sm text-gray-400 mb-2';
-                xAxisDesc.innerHTML = `(X-Axis: <span class="font-semibold">${series.xAxisLabel}</span>)`;
 
                 // Canvas element for drawing the graph
                 const canvas = document.createElement('canvas');
-                canvas.className = 'border border-gray-700 rounded-lg bg-gray-700 shadow-inner cursor-crosshair';
-                canvas.style.width = '100%';
-                canvas.style.maxWidth = `${INTRINSIC_CANVAS_WIDTH}px`;
-                canvas.style.height = 'auto'; // Maintain aspect ratio based on width
+                canvas.id = series.canvasId; // Assign an ID for easy lookup
+                canvas.className = 'cursor-crosshair';
+                canvas.style.maxWidth = `${INTRINSIC_CANVAS_WIDTH}px`; // Maintain aspect ratio via CSS width/height:auto
 
-                // --- Create Cursor Elements (initially hidden) ---
-                const verticalLine = document.createElement('div');
-                verticalLine.className = 'absolute bg-blue-300 pointer-events-none hidden';
-                verticalLine.style.width = '1px';
-
+                // --- Create Local Cursor Elements (initially hidden) ---
                 const horizontalLine = document.createElement('div');
-                horizontalLine.className = 'absolute bg-blue-300 pointer-events-none hidden';
+                horizontalLine.className = 'absolute bg-red-500 pointer-events-none hidden';
                 horizontalLine.style.height = '1px';
 
-                const xLabel = document.createElement('div');
-                xLabel.className = 'absolute bg-gray-700 text-blue-300 text-xs px-2 py-1 rounded shadow-md pointer-events-none whitespace-nowrap hidden';
-                xLabel.style.transform = 'translateX(-50%)';
-                xLabel.style.minWidth = '50px';
-                xLabel.style.textAlign = 'center';
-
                 const yLabel = document.createElement('div');
-                yLabel.className = 'absolute bg-gray-700 text-blue-300 text-xs px-2 py-1 rounded shadow-md pointer-events-none whitespace-nowrap hidden';
+                yLabel.className = 'absolute bg-gray-900 text-red-500 text-xs px-2 py-1 rounded shadow-md pointer-events-none whitespace-nowrap hidden';
                 yLabel.style.transform = 'translateX(-100%)';
                 yLabel.style.minWidth = '50px';
                 yLabel.style.textAlign = 'right';
+                yLabel.style.zIndex = '10';
 
-                // Store references to cursor elements for manipulation in event handlers
+                // Store references to local cursor elements
                 const cursorElements = {
-                    verticalLine,
                     horizontalLine,
-                    xLabel,
                     yLabel
                 };
 
-                // Append elements to the graph container
-                graphDiv.appendChild(title);
-                graphDiv.appendChild(xAxisDesc);
-                graphDiv.appendChild(canvas);
-                graphDiv.appendChild(verticalLine);
+                // Append elements to the graph container (order matters for z-index/overlay)
+                graphDiv.appendChild(canvas); // Canvas first so cursor elements can overlay
                 graphDiv.appendChild(horizontalLine);
-                graphDiv.appendChild(xLabel);
                 graphDiv.appendChild(yLabel);
 
                 graphsContainer.appendChild(graphDiv);
@@ -475,15 +548,93 @@
                     series.name,
                     series.xValues,
                     series.yValues,
-                    series.minX, series.maxX, series.minY, series.maxY,
-                    series.color,
-                    series.xAxisLabel
+                    series.minY, series.maxY,
+                    DATA_LINE_COLOR
                 );
 
-                // Add event listeners for cursor interaction
+                // Add event listeners for cursor interaction to each canvas
                 canvas.addEventListener('mousemove', (e) => handleMouseMove(e, canvas, series, cursorElements));
-                canvas.addEventListener('mouseleave', () => hideCursor(cursorElements));
+                canvas.addEventListener('mouseleave', (e) => {
+                    const relatedTarget = e.relatedTarget;
+                    const isLeavingContainer = !graphsContainer.contains(relatedTarget);
+
+                    if (isLeavingContainer) {
+                        hideGlobalXCursor(); // Hide global cursor only if leaving container
+                    }
+                    hideLocalCursor(cursorElements); // Always hide local cursor on mouseleave from individual canvas
+                    // Redraw specific graph to clear highlight
+                    drawSingleSeriesGraph(
+                        canvas,
+                        series.name,
+                        series.xValues,
+                        series.yValues,
+                        series.minY, series.maxY,
+                        DATA_LINE_COLOR
+                    );
+                });
             });
+
+            // After all graphs are rendered, add the common X-axis ruler at the bottom
+            const commonXAxisRuler = document.createElement('div');
+            commonXAxisRuler.id = 'global-x-axis-ruler';
+
+            // Calculate tick values and append spans for them
+            const numTicks = 6; // To get 7 labels (0-6 like 200, 300..700 in image)
+            const tickStep = (globalMaxX - globalMinX) / numTicks;
+
+            for (let i = 0; i <= numTicks; i++) {
+                const tickValue = globalMinX + (tickStep * i);
+                const span = document.createElement('span');
+                span.textContent = tickValue.toFixed(0); // Display as integers
+                span.style.position = 'absolute';
+                // Calculate position based on graph width and padding
+                const graphWidthAvailable = INTRINSIC_CANVAS_WIDTH - 2 * PADDING;
+                const percentPosition = (tickValue - globalMinX) / (globalMaxX - globalMinX);
+                const leftPosition = PADDING + (percentPosition * graphWidthAvailable);
+                span.style.left = `${leftPosition}px`;
+                span.style.transform = 'translateX(-50%)'; // Center text on the position
+                commonXAxisRuler.appendChild(span);
+            }
+
+            // Add the X-axis label itself, centered.
+            const xAxisLabelSpan = document.createElement('span');
+            xAxisLabelSpan.textContent = globalXAxisLabel || 'Time'; // Use actual X-axis label or 'Time'
+            xAxisLabelSpan.style.position = 'absolute';
+            xAxisLabelSpan.style.bottom = '5px'; // Position below the numbers
+            xAxisLabelSpan.style.left = '50%';
+            xAxisLabelSpan.style.transform = 'translateX(-50%)';
+            xAxisLabelSpan.style.fontSize = '14px';
+            commonXAxisRuler.appendChild(xAxisLabelSpan);
+
+
+            graphsContainer.appendChild(commonXAxisRuler);
+
+            // Compute actual padding for the ruler based on max-width and internal padding
+            const rulerRect = commonXAxisRuler.getBoundingClientRect();
+            const rulerPaddingLeft = (rulerRect.width - (INTRINSIC_CANVAS_WIDTH - 2 * PADDING)) / 2 + PADDING; // Assuming centering
+            commonXAxisRuler.style.setProperty('--padding-left-computed', `${rulerPaddingLeft}px`);
+            commonXAxisRuler.style.setProperty('--padding-right-computed', `${rulerPaddingLeft}px`);
+
+
+            // Set the overall height of the global vertical cursor after all graphs are rendered
+            const totalGraphsHeight = graphsContainer.offsetHeight - commonXAxisRuler.offsetHeight;
+            globalVerticalCursor.style.height = `${totalGraphsHeight}px`;
+            globalVerticalCursor.style.top = `0px`; // Relative to graphsContainer top
+            globalXLabel.style.bottom = `${commonXAxisRuler.offsetHeight + 5}px`; // Position above the ruler's bottom edge
+
+            // Dynamically adjust padding-left and padding-right for the ruler
+            // This is complex due to `max-width` and centering of `graphs-container`
+            // Let's get the actual rendered width of the first canvas to compute the effective padding
+            const firstCanvas = graphsContainer.querySelector('canvas');
+            if (firstCanvas) {
+                const firstCanvasRect = firstCanvas.getBoundingClientRect();
+                const effectiveGraphRenderedWidth = firstCanvasRect.width - 2 * (PADDING * (firstCanvasRect.width / INTRINSIC_CANVAS_WIDTH));
+                const spaceOutsideGraph = (rulerRect.width - effectiveGraphRenderedWidth) / 2;
+
+                commonXAxisRuler.style.paddingLeft = `${spaceOutsideGraph}px`;
+                commonXAxisRuler.style.paddingRight = `${spaceOutsideGraph}px`;
+            }
+
         }
 
         // --- Event Listener for File Input ---
@@ -493,8 +644,9 @@
             if (file) {
                 if (!file.name.endsWith('.csv')) {
                     displayError('Please select a .csv file.');
-                    graphsContainer.innerHTML = ''; // Clear graphs if wrong file type
-                    initialMessageElement.classList.remove('hidden'); // Show initial message
+                    graphsContainer.innerHTML = '';
+                    graphsContainer.appendChild(initialMessageElement);
+                    initialMessageElement.classList.remove('hidden');
                     return;
                 }
 
@@ -507,6 +659,7 @@
                         if (parsedData.length <= 1 || parsedData[0].length < 2) {
                             displayError('CSV must contain at least a header row and two columns (X-axis and one Y-axis series).');
                             graphsContainer.innerHTML = '';
+                            graphsContainer.appendChild(initialMessageElement);
                             initialMessageElement.classList.remove('hidden');
                             return;
                         }
@@ -514,42 +667,50 @@
                         const headers = parsedData[0];
                         const rawDataRows = parsedData.slice(1);
 
-                        // Process data for each series
-                        const processedSeriesData = [];
-                        const xValues = rawDataRows.map(row => parseFloat(row[0])).filter(val => !isNaN(val));
+                        // Store global X-axis label
+                        globalXAxisLabel = headers[0] || '';
 
-                        if (xValues.length === 0) {
+                        // Extract X-axis values from the first column of all data rows
+                        const allXValues = rawDataRows.map(row => parseFloat(row[0])).filter(val => !isNaN(val));
+
+                        if (allXValues.length === 0) {
                             displayError(`No valid numeric data found for X-axis (column "${headers[0]}").`);
                             graphsContainer.innerHTML = '';
+                            graphsContainer.appendChild(initialMessageElement);
                             initialMessageElement.classList.remove('hidden');
                             return;
                         }
 
+                        globalMinX = Math.min(...allXValues);
+                        globalMaxX = Math.max(...allXValues);
+
+                        // Process data for each series
+                        allSeriesData = []; // Reset global series data
                         for (let colIndex = 1; colIndex < headers.length; colIndex++) {
                             const yValues = rawDataRows.map(row => parseFloat(row[colIndex])).filter(val => !isNaN(val));
 
                             if (yValues.length > 0) {
                                 const minY = Math.min(...yValues);
                                 const maxY = Math.max(...yValues);
-                                processedSeriesData.push({
+                                allSeriesData.push({
                                     id: `series-${colIndex}`,
+                                    canvasId: `canvas-series-${colIndex}`, // Unique ID for each canvas
                                     name: headers[colIndex],
-                                    xValues,
+                                    xValues: allXValues, // Use the globally extracted X values
                                     yValues,
-                                    minX: Math.min(...xValues), // Ensure X-axis scale is consistent
-                                    maxX: Math.max(...xValues),
                                     minY,
                                     maxY,
-                                    color: getColor(colIndex - 1),
-                                    xAxisLabel: headers[0]
+                                    color: DATA_LINE_COLOR, // Fixed red color
+                                    xAxisLabel: headers[0] // Stored for potential use, but X-axis label is now global
                                 });
                             }
                         }
 
-                        renderGraphs(processedSeriesData); // Render all graphs
+                        renderGraphs(allSeriesData); // Render all graphs
                     } catch (err) {
                         displayError('Error parsing CSV file: ' + err.message);
                         graphsContainer.innerHTML = '';
+                        graphsContainer.appendChild(initialMessageElement);
                         initialMessageElement.classList.remove('hidden');
                     }
                 };
@@ -557,13 +718,15 @@
                 reader.onerror = () => {
                     displayError('Failed to read file.');
                     graphsContainer.innerHTML = '';
+                    graphsContainer.appendChild(initialMessageElement);
                     initialMessageElement.classList.remove('hidden');
                 };
 
                 reader.readAsText(file); // Read the file content as text
             } else {
-                graphsContainer.innerHTML = ''; // Clear graphs if no file selected
-                initialMessageElement.classList.remove('hidden'); // Show initial message
+                graphsContainer.innerHTML = '';
+                graphsContainer.appendChild(initialMessageElement);
+                initialMessageElement.classList.remove('hidden');
             }
         });
     </script>
