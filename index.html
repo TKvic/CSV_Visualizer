@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>CSV Data Multi-Graph Visualizer</title>
+    <title>R22 Racing Innovations</title>
     <!-- Tailwind CSS CDN -->
     <script src="https://cdn.tailwindcss.com"></script>
     <!-- Google Fonts - Inter for clean typography -->
@@ -72,13 +72,13 @@
 <body class="min-h-screen bg-black p-4 flex flex-col items-center text-gray-100">
 
     <h1 class="text-4xl font-bold text-red-500 mb-6 rounded-lg p-2 shadow-lg">
-        CSV Data Multi-Graph Visualizer
+        R22 TIMS Data Viewer
     </h1>
 
     <!-- File input section -->
     <div class="bg-gray-950 p-6 rounded-2xl shadow-lg mb-8 w-full max-w-2xl flex flex-col items-center border border-gray-800">
         <label for="csv-upload" class="block text-lg font-medium text-gray-100 mb-4">
-            Upload a CSV File to view its graphs:
+            Upload a CSV File to view your data:
         </label>
         <input
             type="file"
@@ -97,13 +97,23 @@
         </p>
     </div>
 
+    <!-- AI Insights Section -->
+    <div id="ai-insights-section" class="bg-gray-950 p-6 rounded-2xl shadow-lg mb-8 w-full max-w-4xl flex flex-col items-center border border-gray-800 hidden">
+        <h2 class="text-2xl font-semibold text-red-500 mb-4">AI Data Insights</h2>
+        <button id="summarize-button" class="bg-red-700 hover:bg-red-800 text-white font-bold py-2 px-4 rounded-full shadow-md transition-all duration-300 mb-4">
+            ✨ AI Data Summary
+        </button>
+        <div id="gemini-loading" class="hidden text-red-400">Loading AI Summary...</div>
+        <div id="gemini-output" class="w-full text-gray-300 bg-gray-800 p-4 rounded-lg text-sm whitespace-pre-wrap break-words border border-gray-700">
+            <!-- AI generated summary will appear here -->
+        </div>
+    </div>
+
+
     <!-- Graphs display section -->
     <div id="graphs-container" class="flex flex-col items-center gap-0 w-full max-w-5xl relative">
         <div id="initial-message" class="bg-gray-950 p-6 rounded-2xl shadow-lg w-full max-w-2xl text-center text-gray-300 border border-gray-800">
-            <p>Upload a CSV file above to see the graphs!</p>
-            <p class="text-sm mt-2">
-                The first column will be used for the X-axis (time/index), and each subsequent numeric column will be displayed as a separate graph.
-            </p>
+            <p>Waiting For Data</p>
         </div>
         <!-- Global vertical cursor line - positioned here to span all graphs -->
         <div id="vertical-cursor-global"></div>
@@ -113,7 +123,7 @@
 
     <script>
         // --- Global Variables and Constants ---
-        const PADDING = 25; // Reduced padding for tighter graphs
+        const PADDING = 40; // Increased padding for Y-axis labels
         const INTRINSIC_CANVAS_WIDTH = 800; // Designed drawing width of the canvas in pixels
         const INTRINSIC_CANVAS_HEIGHT = 200; // Adjusted height for more compact, stacked graphs
         const FONT_COLOR = '#e5e7eb'; // Light gray for text
@@ -129,6 +139,13 @@
         const initialMessageElement = document.getElementById('initial-message');
         const globalVerticalCursor = document.getElementById('vertical-cursor-global');
         const globalXLabel = document.getElementById('global-x-label');
+
+        // AI specific elements
+        const aiInsightsSection = document.getElementById('ai-insights-section');
+        const summarizeButton = document.getElementById('summarize-button');
+        const geminiLoading = document.getElementById('gemini-loading');
+        const geminiOutput = document.getElementById('gemini-output');
+
 
         let allSeriesData = []; // To store all processed series data globally
         let globalMinX = 0; // Overall min X across all series
@@ -421,7 +438,9 @@
                 }
             } else {
                 hideLocalCursor(cursorElements);
-                hideGlobalXCursor(); // This one now only hides when mouse *leaves the whole container*
+                // Mouse is outside the plotting area of this specific canvas, but might still be inside the larger graphs-container
+                // The global cursor should only hide if the mouse leaves the *entire* graphs-container
+                // This logic is handled by the mouseleave listener on graphsContainer
             }
         }
 
@@ -481,6 +500,68 @@
         }
 
         /**
+         * @brief Handles the click event for the summarize button.
+         * Calls the Gemini API to get a summary of the data trends.
+         */
+        async function summarizeDataTrends() {
+            if (allSeriesData.length === 0) {
+                geminiOutput.textContent = "Please upload a CSV file with data first.";
+                return;
+            }
+
+            geminiLoading.classList.remove('hidden');
+            geminiOutput.textContent = ''; // Clear previous output
+
+            let prompt = "You are an AI assistant for data analysis. Summarize the key trends, relationships, or interesting observations from the following numerical data series. Focus on the progression of values along the X-axis (which represents " + globalXAxisLabel + " if available).\n\n";
+            prompt += "Data Series:\n";
+
+            allSeriesData.forEach(series => {
+                prompt += `- ${series.name}: X-axis range (${globalMinX.toFixed(2)} to ${globalMaxX.toFixed(2)}). Y-axis values range from ${series.minY.toFixed(2)} to ${series.maxY.toFixed(2)}.\n`;
+                // Optionally add a few points for more context, but keep prompt size in mind
+                // For simplicity, we are sending aggregated min/max info only.
+            });
+
+            prompt += "\nProvide a concise, easy-to-understand summary. Highlight any significant increases, decreases, plateaus, or correlations between series. Limit your response to 3-5 sentences.";
+
+            let chatHistory = [];
+            chatHistory.push({ role: "user", parts: [{ text: prompt }] });
+            const payload = { contents: chatHistory };
+            const apiKey = ""; // Canvas will provide this at runtime
+
+            const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${apiKey}`;
+
+            try {
+                const response = await fetch(apiUrl, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload)
+                });
+
+                if (!response.ok) {
+                    const errorBody = await response.json();
+                    throw new Error(`API error: ${response.status} - ${errorBody.error.message || 'Unknown error'}`);
+                }
+
+                const result = await response.json();
+
+                if (result.candidates && result.candidates.length > 0 &&
+                    result.candidates[0].content && result.candidates[0].content.parts &&
+                    result.candidates[0].content.parts.length > 0) {
+                    const text = result.candidates[0].content.parts[0].text;
+                    geminiOutput.textContent = text;
+                } else {
+                    geminiOutput.textContent = "Could not generate summary. Unexpected API response structure.";
+                }
+            } catch (error) {
+                console.error("Error calling Gemini API:", error);
+                geminiOutput.textContent = `Error: ${error.message}. Please try again.`;
+            } finally {
+                geminiLoading.classList.add('hidden');
+            }
+        }
+
+
+        /**
          * @brief Renders all processed data series as individual graphs.
          * @param processedSeriesData Array of series data objects.
          */
@@ -492,7 +573,7 @@
             if (processedSeriesData.length === 0) {
                 graphsContainer.appendChild(initialMessageElement); // Re-add initial message
                 initialMessageElement.classList.remove('hidden');
-                displayError('No valid numeric data series found for graphing. Please check your CSV columns.');
+                aiInsightsSection.classList.add('hidden'); // Hide AI section if no graphs
                 return;
             }
 
@@ -556,12 +637,15 @@
                 canvas.addEventListener('mousemove', (e) => handleMouseMove(e, canvas, series, cursorElements));
                 canvas.addEventListener('mouseleave', (e) => {
                     const relatedTarget = e.relatedTarget;
+                    // Check if mouse left the *entire* graphs container
+                    // Only hide global cursor if leaving the whole `graphsContainer`
                     const isLeavingContainer = !graphsContainer.contains(relatedTarget);
 
                     if (isLeavingContainer) {
-                        hideGlobalXCursor(); // Hide global cursor only if leaving container
+                        hideGlobalXCursor();
                     }
-                    hideLocalCursor(cursorElements); // Always hide local cursor on mouseleave from individual canvas
+                    // Always hide local cursor when leaving its specific canvas
+                    hideLocalCursor(cursorElements);
                     // Redraw specific graph to clear highlight
                     drawSingleSeriesGraph(
                         canvas,
@@ -611,9 +695,17 @@
 
             // Compute actual padding for the ruler based on max-width and internal padding
             const rulerRect = commonXAxisRuler.getBoundingClientRect();
-            const rulerPaddingLeft = (rulerRect.width - (INTRINSIC_CANVAS_WIDTH - 2 * PADDING)) / 2 + PADDING; // Assuming centering
-            commonXAxisRuler.style.setProperty('--padding-left-computed', `${rulerPaddingLeft}px`);
-            commonXAxisRuler.style.setProperty('--padding-right-computed', `${rulerPaddingLeft}px`);
+            // Get the effective graph plotting width from the first canvas's rendered size
+            const firstCanvas = graphsContainer.querySelector('canvas');
+            let effectiveGraphRenderedWidth = INTRINSIC_CANVAS_WIDTH - 2 * PADDING; // Default if canvas not found
+            if (firstCanvas) {
+                const firstCanvasRect = firstCanvas.getBoundingClientRect();
+                effectiveGraphRenderedWidth = firstCanvasRect.width - 2 * (PADDING * (firstCanvasRect.width / INTRINSIC_CANVAS_WIDTH));
+            }
+
+            const spaceOutsideGraph = (rulerRect.width - effectiveGraphRenderedWidth) / 2;
+            commonXAxisRuler.style.paddingLeft = `${spaceOutsideGraph}px`;
+            commonXAxisRuler.style.paddingRight = `${spaceOutsideGraph}px`;
 
 
             // Set the overall height of the global vertical cursor after all graphs are rendered
@@ -622,19 +714,9 @@
             globalVerticalCursor.style.top = `0px`; // Relative to graphsContainer top
             globalXLabel.style.bottom = `${commonXAxisRuler.offsetHeight + 5}px`; // Position above the ruler's bottom edge
 
-            // Dynamically adjust padding-left and padding-right for the ruler
-            // This is complex due to `max-width` and centering of `graphs-container`
-            // Let's get the actual rendered width of the first canvas to compute the effective padding
-            const firstCanvas = graphsContainer.querySelector('canvas');
-            if (firstCanvas) {
-                const firstCanvasRect = firstCanvas.getBoundingClientRect();
-                const effectiveGraphRenderedWidth = firstCanvasRect.width - 2 * (PADDING * (firstCanvasRect.width / INTRINSIC_CANVAS_WIDTH));
-                const spaceOutsideGraph = (rulerRect.width - effectiveGraphRenderedWidth) / 2;
-
-                commonXAxisRuler.style.paddingLeft = `${spaceOutsideGraph}px`;
-                commonXAxisRuler.style.paddingRight = `${spaceOutsideGraph}px`;
-            }
-
+            // Show AI Insights section
+            aiInsightsSection.classList.remove('hidden');
+            geminiOutput.textContent = 'Click "✨ Summarize Data Trends" to get AI insights.'; // Reset AI output message
         }
 
         // --- Event Listener for File Input ---
@@ -647,6 +729,7 @@
                     graphsContainer.innerHTML = '';
                     graphsContainer.appendChild(initialMessageElement);
                     initialMessageElement.classList.remove('hidden');
+                    aiInsightsSection.classList.add('hidden'); // Hide AI section
                     return;
                 }
 
@@ -661,6 +744,7 @@
                             graphsContainer.innerHTML = '';
                             graphsContainer.appendChild(initialMessageElement);
                             initialMessageElement.classList.remove('hidden');
+                            aiInsightsSection.classList.add('hidden'); // Hide AI section
                             return;
                         }
 
@@ -678,6 +762,7 @@
                             graphsContainer.innerHTML = '';
                             graphsContainer.appendChild(initialMessageElement);
                             initialMessageElement.classList.remove('hidden');
+                            aiInsightsSection.classList.add('hidden'); // Hide AI section
                             return;
                         }
 
@@ -712,6 +797,7 @@
                         graphsContainer.innerHTML = '';
                         graphsContainer.appendChild(initialMessageElement);
                         initialMessageElement.classList.remove('hidden');
+                        aiInsightsSection.classList.add('hidden'); // Hide AI section
                     }
                 };
 
@@ -720,6 +806,7 @@
                     graphsContainer.innerHTML = '';
                     graphsContainer.appendChild(initialMessageElement);
                     initialMessageElement.classList.remove('hidden');
+                    aiInsightsSection.classList.add('hidden'); // Hide AI section
                 };
 
                 reader.readAsText(file); // Read the file content as text
@@ -727,8 +814,12 @@
                 graphsContainer.innerHTML = '';
                 graphsContainer.appendChild(initialMessageElement);
                 initialMessageElement.classList.remove('hidden');
+                aiInsightsSection.classList.add('hidden'); // Hide AI section
             }
         });
+
+        // Add event listener for the AI summarize button
+        summarizeButton.addEventListener('click', summarizeDataTrends);
     </script>
 </body>
 </html>
